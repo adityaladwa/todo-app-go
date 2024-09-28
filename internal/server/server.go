@@ -3,11 +3,12 @@ package server
 import (
     "context"
     "fmt"
+    "github.com/go-chi/chi/v5/middleware"
     "net/http"
     _ "os"
 
     "github.com/go-chi/chi/v5"
-	"github.com/jackc/pgx/v5"
+    "github.com/jackc/pgx/v5"
     "github.com/sirupsen/logrus"
 
     "github.com/adityaladwa/todo-app/internal/handlers"
@@ -17,11 +18,11 @@ import (
 )
 
 type Server struct {
-    Config   *Config
-    Router   *chi.Mux
-    Logger   *logrus.Logger
-    Queries  *db.Queries
-    DBPool   *pgx.Conn
+    Config  *Config
+    Router  *chi.Mux
+    Logger  *logrus.Logger
+    Queries *db.Queries
+    DBPool  *pgx.Conn
 }
 
 type Config struct {
@@ -48,30 +49,6 @@ type DatabaseConfig struct {
 // LogConfig holds logging-related configuration.
 type LogConfig struct {
     Level string `mapstructure:"level"`
-}
-
-// LoadConfig reads configuration from the specified path using Viper.
-func LoadConfig(path string) (*Config, error) {
-    viper.SetConfigFile(path)
-    viper.SetConfigType("yaml")
-
-    // Set default values
-    viper.SetDefault("server.port", 8080)
-    viper.SetDefault("database.sslmode", "disable")
-    viper.SetDefault("log.level", "info")
-
-    // Read the configuration file
-    if err := viper.ReadInConfig(); err != nil {
-        return nil, fmt.Errorf("error reading config file: %w", err)
-    }
-
-    // Unmarshal the configuration into the Config struct
-    var config Config
-    if err := viper.Unmarshal(&config); err != nil {
-        return nil, fmt.Errorf("unable to decode config into struct: %w", err)
-    }
-
-    return &config, nil
 }
 
 func NewServer(configPath string) (*Server, error) {
@@ -103,6 +80,8 @@ func NewServer(configPath string) (*Server, error) {
 
     // Initialize router
     router := chi.NewRouter()
+    router.Use(middleware.Recoverer)
+    router.Use(logger.LogrusMiddleware(log))
 
     server := &Server{
         Config:  config,
@@ -117,7 +96,29 @@ func NewServer(configPath string) (*Server, error) {
     return server, nil
 }
 
+// LoadConfig reads configuration from the specified path using Viper.
+func LoadConfig(path string) (*Config, error) {
+    viper.SetConfigFile(path)
+    viper.SetConfigType("yaml")
 
+    // Set default values
+    viper.SetDefault("server.port", 8080)
+    viper.SetDefault("database.sslmode", "disable")
+    viper.SetDefault("log.level", "info")
+
+    // Read the configuration file
+    if err := viper.ReadInConfig(); err != nil {
+        return nil, fmt.Errorf("error reading config file: %w", err)
+    }
+
+    // Unmarshal the configuration into the Config struct
+    var config Config
+    if err := viper.Unmarshal(&config); err != nil {
+        return nil, fmt.Errorf("unable to decode config into struct: %w", err)
+    }
+
+    return &config, nil
+}
 
 func (s *Server) setupRoutes() {
     s.Router.Route("/todos", func(r chi.Router) {
@@ -145,7 +146,7 @@ func (s *Server) Start() {
 func (s *Server) Shutdown() {
     err := s.DBPool.Close(context.Background())
     if err != nil {
-        s.Logger.Fatal(err) 
+        s.Logger.Fatal(err)
     }
     // Implement other graceful shutdown steps if needed
 }
